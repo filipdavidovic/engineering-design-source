@@ -1,50 +1,56 @@
 #include <Servo.h>
 #include <math.h>
+#include <Stepper.h>
 
-#define Y 10 // TODO: determine the default height
 #define ll 20 // length of the lower section of the crane. The variable name is "LL", but lower case. TODO: determine the actual length of the section
 #define lh 30 // length of the higher section of the crane. The variable name is "LH", but lower case. TODO: determine the actual length of the section
-#define gearRatio 4 // the ratio between the gear of continous servos and the gears on the crane, the ratio is 1:4=gearServo:gearCrane. TODO: check the actual ratio
-#define timeSampleServo 150
+
+#define timeSampleServo 100
+
+#define craneBasePinOne 3 // pin one for the stepper motor mounted on the base of the crane
+#define craneBasePinTwo 4 // pin two for the stepper motor mounted on the base of the crane
+#define craneBasePinThree 5 // pin three for the stepper motor mounted on the base of the crane
+#define craneBasePinFour 6 // pin four for the stepper motor mounted on the base of the crane
 
 typedef int bool;
 #define true 1
 #define false 0
 
-bool craneManual = false;
+bool readUltrasonic = false;
 bool motorRunning = false; // variable that determines whether the DC wheel motors should stop, based on the input and the current state (true if the motors were running in the last iteration of the loop() function)
 bool wheelsTurning = false; // variable that determines whether the wheel servo should return to the forward position, based on the input and the current state (true if the vehicle was turning in the last iteration of the loop() function)
-bool gear = true; // vehicle gear for manouvering, there exist two gears, slow and fast
+bool gearSlow = true; // vehicle gear for manouvering, there exist two gears, slow and fast
 
 const int ultrasonicEchoPin = 9;
 const int ultrasonicTrigPin = 10;
 
-Servo craneBase;
-int craneBasePos = 0; // TODO: calculate
-const int craneBaseStop = 97; // TODO: check the exact value
-int craneBasePin = A0;
-Servo craneLowerJoint;
-int craneLowerJointPos = 0; // TODO: calculate
-const int craneLowerJointStop = 96; // TODO: check the exact value
-int craneLowerJointPin = A1;
-Servo craneMiddleJoint;
-int craneMiddleJointPos = 0; // TODO: calculate
-const int craneMiddleJointStop = 97; // TODO: check the exact value
-int craneMiddleJointPin = A2;
-Servo craneClaw;
-int craneClawPos = 0; // crane is not clenched by default
-int craneClawPin = A3;
+double craneBasePos = 0;
 
-float craneXCoord = 10; // TODO: calculate the right starting position in terms of x, y is always constant
-float craneYCoord = Y; // at initialization, set the starting height of the crane to be Y
+Servo craneLowerJoint;
+int craneLowerJointPos = 130; 
+int craneLowerJointPin = A1;
+
+Servo craneMiddleJoint;
+int craneMiddleJointPos = 90; 
+const int craneMiddleJointStop = 90;
+const int craneMiddleJointSpeed = 10;
+int craneMiddleJointPin = A2;
+
+Servo craneClawRotation;
+int craneClawRotationPos = 30;
+const int craneClawRotationPin = 12;
+
+Servo craneClawClench;
+bool craneClawClenchPos = 0; // crane is not clenched by default
+const int craneClawClenchPin = 13;
 
 Servo wheelDirection;
-int wheelDirectionPin = A3;
+const int wheelDirectionPin = A3;
 int wheelDirectionPos = 90;
 
-int wheelLeftMotorPinOne = 3;
-int wheelLeftMotorPinTwo = 5;
-int wheelRightMotorPinOne = 6;
+int wheelLeftMotorPinOne = 2;
+int wheelLeftMotorPinTwo = 7;
+int wheelRightMotorPinOne = 8;
 int wheelRightMotorPinTwo = 11;
 
 int wheelIterationCounter = 0;
@@ -60,25 +66,108 @@ Servo cameraY;
 int cameraYPos = 0;
 int cameraYPin = A5;
 
-double distance(double x, double y) {
-  return sqrt(x*x + y*y);
+void blinkHeadlight(int pin) {
+  digitalWrite(pin, HIGH);
+  delay(500);
+  digitalWrite(pin, LOW);
 }
 
-double radToDeg(double rad) {
-  return rad * 57296 / 1000;
-}
-
-void calculateCraneXAndY() {
-  craneXCoord = cos(craneLowerJointPos) * ll + cos(craneLowerJointPos + craneMiddleJointPos) * lh;
-
-  if(craneManual) {
-    craneYCoord = sin(craneLowerJointPos) * ll + sin(craneLowerJointPos + craneMiddleJointPos) * lh;
-  } else {
-    craneYCoord = Y;
+void writeServoSmooth(Servo servo,int current, int deg, bool negative) {
+  for(int i = 1; i <= deg; i++) {
+    if(negative) {
+      servo.write(current - i);
+    } else {
+      servo.write(current + i);
+    }
+    delay(20);
   }
 }
 
-void readUltrasonic() {
+void stepper(int n, bool dir){
+  int steps = 0;
+  for (int i = 0; i < n; i++){
+    switch(steps){
+     case 0:
+       digitalWrite(craneBasePinOne, LOW); 
+       digitalWrite(craneBasePinTwo, LOW);
+       digitalWrite(craneBasePinThree, LOW);
+       digitalWrite(craneBasePinFour, HIGH);
+       break; 
+     case 1:
+       digitalWrite(craneBasePinOne, LOW); 
+       digitalWrite(craneBasePinTwo, LOW);
+       digitalWrite(craneBasePinThree, HIGH);
+       digitalWrite(craneBasePinFour, HIGH);
+       break; 
+     case 2:
+       digitalWrite(craneBasePinOne, LOW); 
+       digitalWrite(craneBasePinTwo, LOW);
+       digitalWrite(craneBasePinThree, HIGH);
+       digitalWrite(craneBasePinFour, LOW);
+       break; 
+     case 3:
+       digitalWrite(craneBasePinOne, LOW); 
+       digitalWrite(craneBasePinTwo, HIGH);
+       digitalWrite(craneBasePinThree, HIGH);
+       digitalWrite(craneBasePinFour, LOW);
+       break; 
+     case 4:
+       digitalWrite(craneBasePinOne, LOW); 
+       digitalWrite(craneBasePinTwo, HIGH);
+       digitalWrite(craneBasePinThree, LOW);
+       digitalWrite(craneBasePinFour, LOW);
+       break; 
+     case 5:
+       digitalWrite(craneBasePinOne, HIGH); 
+       digitalWrite(craneBasePinTwo, HIGH);
+       digitalWrite(craneBasePinThree, LOW);
+       digitalWrite(craneBasePinFour, LOW);
+       break; 
+     case 6:
+       digitalWrite(craneBasePinOne, HIGH); 
+       digitalWrite(craneBasePinTwo, LOW);
+       digitalWrite(craneBasePinThree, LOW);
+       digitalWrite(craneBasePinFour, LOW);
+       break; 
+     case 7:
+       digitalWrite(craneBasePinOne, HIGH); 
+       digitalWrite(craneBasePinTwo, LOW);
+       digitalWrite(craneBasePinThree, LOW);
+       digitalWrite(craneBasePinFour, HIGH);
+       break; 
+     default:
+       digitalWrite(craneBasePinOne, LOW); 
+       digitalWrite(craneBasePinTwo, LOW);
+       digitalWrite(craneBasePinThree, LOW);
+       digitalWrite(craneBasePinFour, LOW);
+       break; 
+    }
+    steps = setDirection(steps, dir);
+    delay(5);
+  }
+} 
+
+int setDirection(int steps, bool dir){
+  if(dir){ 
+    steps++;
+  }
+  
+  if(!dir){ 
+    steps--; 
+  }
+  
+  if(steps > 7){
+    steps=0;
+  }
+  
+  if(steps < 0){
+    steps=7; 
+  }
+
+  return steps;
+}
+
+void readUltrasonicFN() {
   // Clears the trigPin
   digitalWrite(ultrasonicTrigPin, LOW);
   delayMicroseconds(2);
@@ -98,100 +187,6 @@ void readUltrasonic() {
   Serial1.println(ultrasonicDistance);
 }
 
-void moveContinuousServo(Servo servo, int toSpeed) {
-  int current = servo.read();
-  if(current < toSpeed) {
-    for(int i = current + 1; i <= toSpeed; i++) {
-      servo.write(i);
-      delay(15);
-    }
-  } else if(current > toSpeed) {
-    for(int i = current - 1; i >= toSpeed; i--) {
-      servo.write(i);
-      delay(15);
-    }
-  }
-}
-
-void moveCraneAutomatic(int xDelta, bool forward) {
-  craneXCoord = craneXCoord + xDelta;
-  double dist = distance(craneXCoord, Y);
-  double alpha = acos( (sq(ll) + sq(lh) - sq(dist)) / ( 2 * ll * lh ) );
-  alpha = radToDeg(alpha);
-  int gamma = (int) 180 - alpha; // the value of the middle joint angle in degrees
-  double theta1 = atan2(Y, craneXCoord);
-  double theta2 = acos( (sq(dist) + sq(ll) - sq(lh)) / ( 2 * dist * ll ) );
-  theta1 = radToDeg(theta1);
-  theta2 = radToDeg(theta2);
-  int theta = (int) theta1 + theta2; // the value of the lower joint angle in degrees
-
-  if(forward) {
-    // first move the middle joint in order to prevent the tip of the crane hitting the ground
-    if(craneMiddleJointPos - gamma < 0) {
-      Serial1.println("moving the middle joint forward");
-      moveContinuousServo(craneMiddleJoint, craneMiddleJointStop+4);
-      delay(((gamma - craneMiddleJointPos) / 5) * timeSampleServo);
-      
-      Serial1.println(((gamma - craneMiddleJointPos) / 5) * timeSampleServo);
-      
-      moveContinuousServo(craneMiddleJoint, craneMiddleJointStop);
-      craneMiddleJointPos = gamma;
-    } else if(craneMiddleJointPos - gamma > 0) {
-      Serial1.println("moving the middle joint backward");
-      moveContinuousServo(craneMiddleJoint, craneMiddleJointStop - 4);
-      delay(((craneMiddleJointPos - gamma) / 5) * timeSampleServo);
-
-      Serial1.println(((gamma - craneMiddleJointPos) / 5) * timeSampleServo);
-      
-      moveContinuousServo(craneMiddleJoint, craneMiddleJointStop);
-      craneMiddleJointPos = gamma;
-    }
-
-    if(craneLowerJointPos - theta < 0) {
-      Serial1.println("moving the lower joint forward");
-      moveContinuousServo(craneLowerJoint, craneLowerJointStop + 4);
-      delay(((theta - craneLowerJointPos) / 5) * timeSampleServo);
-      moveContinuousServo(craneLowerJoint, craneLowerJointStop);
-      craneLowerJointPos = theta;
-    } else if(craneLowerJointPos - theta > 0) {
-      Serial1.println("moving the lower joint backward");
-      moveContinuousServo(craneLowerJoint, craneLowerJointStop - 4);
-      delay(((craneLowerJointPos - theta) / 5) * timeSampleServo);
-      moveContinuousServo(craneLowerJoint, craneLowerJointStop);
-      craneLowerJointPos = theta;
-    }
-  } else {
-    // first move the lower joint in order to prevent the tip of the crane hitting the ground
-    if(craneLowerJointPos - theta < 0) {
-      Serial1.println("moving the lower joint forward");
-      moveContinuousServo(craneLowerJoint, craneLowerJointStop + 4);
-      delay(((theta - craneLowerJointPos) / 5) * timeSampleServo);
-      moveContinuousServo(craneLowerJoint, craneLowerJointStop);
-      craneLowerJointPos = theta;
-    } else if(craneLowerJointPos - theta > 0) {
-      Serial1.println("moving the lower joint backward");
-      moveContinuousServo(craneLowerJoint, craneLowerJointStop - 4);
-      delay(((craneLowerJointPos - theta) / 5) * timeSampleServo);
-      moveContinuousServo(craneLowerJoint, craneLowerJointStop);
-      craneLowerJointPos = theta;
-    }
-
-    if(craneMiddleJointPos - gamma < 0) {
-      Serial1.println("moving the middle joint forward");
-      moveContinuousServo(craneMiddleJoint, craneMiddleJointStop+4);
-      delay(((gamma - craneMiddleJointPos) / 5) * timeSampleServo);
-      moveContinuousServo(craneMiddleJoint, craneMiddleJointStop);
-      craneMiddleJointPos = gamma;
-    } else if(craneMiddleJointPos - gamma > 0) {
-      Serial1.println("moving the middle joint backward");
-      moveContinuousServo(craneMiddleJoint, craneMiddleJointStop - 4);
-      delay(((craneMiddleJointPos - gamma) / 5) * timeSampleServo);
-      moveContinuousServo(craneMiddleJoint, craneMiddleJointStop);
-      craneMiddleJointPos = gamma;
-    }
-  }
-}
-
 void setup() {
   Serial1.begin(115200); // ethernet cable or WiFi (115200)
 
@@ -204,21 +199,21 @@ void setup() {
   pinMode(wheelLeftMotorPinTwo, OUTPUT);
   pinMode(wheelRightMotorPinOne, OUTPUT);
   pinMode(wheelRightMotorPinTwo, OUTPUT);
+  Serial1.println("The vehicle is in the slow gear operation mode.");
   
   wheelDirection.attach(wheelDirectionPin);
   wheelDirection.write(wheelDirectionPos);
 
   // crane stuff
   // attach servos to respective pins
-  craneBase.attach(craneBasePin);
-  craneBase.write(craneBaseStop);
   craneLowerJoint.attach(craneLowerJointPin);
-  craneLowerJoint.write(craneLowerJointStop);
+  craneLowerJoint.write(craneLowerJointPos); // 180-degree
   craneMiddleJoint.attach(craneMiddleJointPin);
-  craneMiddleJoint.write(craneMiddleJointStop);
-  // craneClaw.attach(craneClawPin); // TODO: connect the claw to the PWM pin, this pin is taken by the wheel servo
-  // TODO: resting position of the crane
-  craneClaw.write(craneClawPos);
+  craneMiddleJoint.write(craneMiddleJointStop); // continuous
+  craneClawClench.attach(craneClawClenchPin);
+  craneClawClench.write(70); // 180-degree
+  craneClawRotation.attach(craneClawRotationPin);
+  craneClawRotation.write(craneClawRotationPos); // 180-degree
 
   // camera stuff
   // attach servos to respective pins
@@ -227,17 +222,15 @@ void setup() {
   // move camera servos to middle position
   cameraX.write(cameraXPos);
   cameraY.write(cameraYPos);
-
-  // clear the input buffer - read the input while there is some, the input is ignored
-  // while (Serial1.available()) {
-  //    Serial1.read();
-  // }
+  
   Serial1.flush();
 }
 
 void loop() {
   // read the ultrasonic sensor on every loop() iteration.
-//  readUltrasonic();
+  if(readUltrasonic) {
+    readUltrasonicFN();
+  }
   
   // while there is input available, consume it
   if(Serial1.available() > 0) {
@@ -265,8 +258,8 @@ void loop() {
     }
 
     switch(command) {
-      // camera navigation(i - up, j - left, k - down, l - right, m - start position)
-      case 'i':
+      // camera navigation(o - up, k - left, l - down, ; - right, m - start position)
+      case 'o':
         cameraYPos = cameraYPos + 5;
       	if(cameraYPos > 180) {
         	cameraYPos = 180;
@@ -275,7 +268,7 @@ void loop() {
         Serial1.println(cameraYPos);
         cameraY.write(cameraYPos);
         break;
-      case 'j':
+      case 'k':
         cameraXPos = cameraXPos + 5;
       	if(cameraXPos > 180) {
         	cameraXPos = 180;
@@ -284,7 +277,7 @@ void loop() {
         Serial1.println(cameraXPos);
         cameraX.write(cameraXPos);
         break;
-      case 'k':
+      case 'l':
         cameraYPos = cameraYPos - 5;
       	if(cameraYPos < 0) {
         	cameraYPos = 0;
@@ -293,7 +286,7 @@ void loop() {
         Serial1.println(cameraYPos);
         cameraY.write(cameraYPos);
         break;
-      case 'l':
+      case ';':
         cameraXPos = cameraXPos - 5;
       	if(cameraXPos < 0) {
         	cameraXPos = 0;
@@ -309,144 +302,150 @@ void loop() {
         cameraX.write(cameraXPos);
         cameraY.write(cameraYPos);
         break;
-      // rotate the base of the crane(f - clockwise, h - counterclockwise), manual control mode does not change anything. TODO: refactor respectivly
-      case 'f':
-        Serial1.print("f");
-        if(craneBasePos > 0) {
-          craneBase.write(craneBaseStop-4);
-          delay(timeSampleServo);
-          craneBase.write(craneBaseStop);
-          craneBasePos -= 5;
+      // rotate the base of the crane(r - clockwise, f - counterclockwise), manual control mode does not change anything.
+      case 'r':
+        Serial1.print("Crane base: ");
+        stepper(2048, true);
+        craneBasePos += 22.5;
+        if(craneBasePos > 360) {
+          craneBasePos -= 360;
+        } else if(craneBasePos < 0) {
+          craneBasePos += 360;
         }
-        if(craneBasePos < 0) {
-          craneBasePos = 0;
+        Serial1.println(craneBasePos);
+        break;
+      case 'f':
+        Serial1.print("Crane base: ");
+        stepper(2048, false);
+        craneBasePos -= 22.5;
+        if(craneBasePos > 360) {
+          craneBasePos -= 360;
+        } else if(craneBasePos < 0) {
+          craneBasePos += 360;
+        }
+        Serial1.println(craneBasePos);
+        break;
+      // move the lower joint up (t) or down (g)
+      case 't':
+        Serial1.print("Lower Joint: ");
+        craneLowerJointPos += 10;
+        if(craneLowerJointPos > 180) {
+          craneLowerJointPos = 180;
+          Serial1.println("At its maximum!");
+        }
+        craneLowerJoint.write(craneLowerJointPos);
+        Serial1.println(craneLowerJointPos);
+        break;
+      case 'g':
+        Serial1.print("Lower Joint: ");
+        if(craneLowerJointPos <  0) {
+          craneLowerJointPos = 0;
+          craneLowerJoint.write(craneLowerJointPos);
+          Serial1.println(craneLowerJointPos);
+        } else if(craneLowerJointPos != 0) {
+          writeServoSmooth(craneLowerJoint, craneLowerJointPos, 10, true);
+          craneLowerJointPos -= 10;
+          Serial1.println(craneLowerJointPos);
+        } else {
+          Serial1.println("At its minimum!");
+        }
+        break;
+      // used to move the middle joint up (y) and down (h)
+      case 'y':
+        Serial1.print("Middle Joint: ");
+        if(craneMiddleJointPos < 140) {
+          craneMiddleJoint.write(craneMiddleJointStop + craneMiddleJointSpeed);
+          delay(timeSampleServo);
+          craneMiddleJoint.write(craneMiddleJointStop);
+          craneMiddleJointPos += craneMiddleJointSpeed;
+          Serial1.println(craneMiddleJointPos);
+        }
+        if(craneMiddleJointPos >= 140) {
+          craneMiddleJointPos = 140;
+          Serial1.println("At its maximum!");
         }
         break;
       case 'h':
-        Serial1.print("h");
-        if(craneBasePos < 180) {
-          craneBase.write(craneBaseStop+4);
+        Serial1.print("Middle Joint: ");
+        if(craneMiddleJointPos > -10) {
+          craneMiddleJoint.write(craneMiddleJointStop - craneMiddleJointSpeed);
           delay(timeSampleServo);
-          craneBase.write(craneBaseStop);
-          craneBasePos += 5;
-        }
-        if(craneBasePos > 360) {
-          craneBasePos = 360;
+          craneMiddleJoint.write(craneMiddleJointStop);
+          craneMiddleJointPos -= craneMiddleJointSpeed;
+          Serial1.println(craneMiddleJointPos);
+        } else if(craneMiddleJointPos <= -10) {
+          craneMiddleJointPos = -10;
+          Serial1.println("At its minimum!");
         }
         break;
-      // navigate crane(t - forward, g - back), in case of manual control, move the lower joint up (t) or down (g)
-      case 't':
-        Serial1.print("t");
-        if(craneManual) {
-          moveContinuousServo(craneLowerJoint, craneLowerJointStop + 4);
-          delay(timeSampleServo);
-          moveContinuousServo(craneLowerJoint, craneLowerJointStop);
-          craneLowerJointPos += 5; // TODO: test the exact value
-          calculateCraneXAndY();
+      case 'u':
+        Serial1.print("Crane Claw Rotation, Clockwise: ");
+        if(craneClawRotationPos > 120) {
+          craneClawRotationPos = 120;
+          craneClawRotation.write(craneClawRotationPos);
+        } else if(craneClawRotationPos != 120) {
+          writeServoSmooth(craneClawRotation, craneClawRotationPos, 10, false);
+          craneClawRotationPos += 10;
+        }
+//        craneClawRotation.write(craneClawRotationPos);
+        Serial1.println(craneClawRotationPos);
+        break;
+      case 'j':
+        Serial1.print("Crane Claw Rotation, Counterclockwise: ");
+        if(craneClawRotationPos <  30) {
+          craneClawRotationPos = 30;
+          craneClawRotation.write(craneClawRotationPos);
+        } else if(craneClawRotationPos != 30) {
+          writeServoSmooth(craneClawRotation, craneClawRotationPos, 10, true);
+          craneClawRotationPos -= 10;
+        }
+        Serial1.println(craneClawRotationPos);
+        break;
+      case 'n':
+        craneClawClenchPos = craneClawClenchPos ^ true;
+        if(craneClawClenchPos) {
+          writeServoSmooth(craneClawClench, 110, 40, false);
+          Serial1.println("Clenching the claw.");
         } else {
-          moveCraneAutomatic(3, true); // TODO: determine the right number, insted of 3
+          writeServoSmooth(craneClawClench, 70, 40, true);
+          Serial1.println("Unclenching the claw.");
         }
         break;
-      case 'g':
-        Serial1.print("g");
-        if(craneManual) {
-          if(craneLowerJointPos > 0) {
-            moveContinuousServo(craneLowerJoint, craneLowerJointStop - 4);
-            delay(timeSampleServo);
-            moveContinuousServo(craneLowerJoint, craneLowerJointStop);
-            craneLowerJointPos -= 5; // TODO: test the exact value
-          }
-          if(craneLowerJointPos < 0) {
-            craneLowerJointPos = 0;
-          }
-          calculateCraneXAndY();
-        } else {
-          moveCraneAutomatic(-3, false); // TODO: determine the right number, insted of 3
-        }
-        break;
-      // used to move the middle joint of the crane in manual mode
-      case 'v':
-        Serial1.print("v");
-        if(craneManual) {
-          if(craneMiddleJointPos < 180) {
-            moveContinuousServo(craneMiddleJoint, craneMiddleJointStop + 4);
-            delay(timeSampleServo);
-            moveContinuousServo(craneMiddleJoint, craneMiddleJointStop);
-            craneMiddleJointPos += 5; // TODO: test the exact value
-          }
-          if(craneMiddleJointPos > 180) {
-            craneMiddleJointPos = 180;
-          }
-        }
-        break;
+      // return the crane to the resting position - b
       case 'b':
-        Serial1.print("b");
-        if(craneManual) {
-          if(craneMiddleJointPos > 0) {
-            moveContinuousServo(craneMiddleJoint, craneMiddleJointStop - 4);
-            delay(timeSampleServo);
-            moveContinuousServo(craneMiddleJoint, craneMiddleJointStop);
-            craneMiddleJointPos -= 5; // TODO: test the exact value
-          }
-          if(craneMiddleJointPos < 0) {
-            craneMiddleJointPos = 0;
-          }
-        }
-        break;
-      // return the crane to the resting position - r
-      case 'r':
-        Serial1.print("r");
-        if(craneBasePos > 0) {
-          moveContinuousServo(craneBase, 0);
-          delay((craneBasePos % 3) * 15);
-          moveContinuousServo(craneBase, craneBaseStop);
+        Serial1.println("Reset crane.");
+        if(craneBasePos >= 180) {
+          stepper(256 * ((360 - craneBasePos) / 22.5), true);
           craneBasePos = 0;
-        } else if(craneBasePos < 0) {
-          moveContinuousServo(craneBase, 180);
-          delay((craneBasePos % 3) * 15);
-          moveContinuousServo(craneBase, craneBaseStop);
+        } else if(craneBasePos != 0) {
+          stepper(256 * (craneBasePos / 22.5), false);
           craneBasePos = 0;
         }
-        if(craneLowerJointPos > 0) {
-          moveContinuousServo(craneLowerJoint, 180);
-          delay((craneLowerJointPos % 3) * 15);
-          moveContinuousServo(craneLowerJoint, craneLowerJointStop);
-          craneLowerJointPos = 0;
-        } else if(craneLowerJointPos > 0) {
-          moveContinuousServo(craneLowerJoint, 0);
-          delay((craneLowerJointPos % 3) * 15);
-          moveContinuousServo(craneLowerJoint, craneLowerJointStop);
-          craneLowerJointPos = 0;
+        
+        craneLowerJointPos = 90;
+        craneLowerJoint.write(craneLowerJointPos);
+        
+        if(craneMiddleJointPos > 90) {
+          craneMiddleJoint.write(craneMiddleJointStop - craneMiddleJointSpeed);
+          delay((craneMiddleJointPos - 90) / craneMiddleJointSpeed * timeSampleServo);
+          craneMiddleJoint.write(craneMiddleJointStop);
+          craneMiddleJointPos = 90;
+        } else if(craneMiddleJointPos < 90) {
+          craneMiddleJoint.write(craneMiddleJointStop + craneMiddleJointSpeed);
+          delay((90 - craneMiddleJointPos) / craneMiddleJointSpeed * timeSampleServo);
+          craneMiddleJoint.write(craneMiddleJointStop);
+          craneMiddleJointPos = 90;
         }
-        if(craneMiddleJointPos > 0) {
-          moveContinuousServo(craneMiddleJoint, 180);
-          delay((craneMiddleJointPos % 3) * 15);
-          moveContinuousServo(craneMiddleJoint, craneMiddleJointStop);
-          craneMiddleJointPos = 0;
-        } else if(craneMiddleJointPos < 0) {
-          moveContinuousServo(craneMiddleJoint, 0);
-          delay((craneMiddleJointPos % 3) * 15);
-          moveContinuousServo(craneMiddleJoint, craneMiddleJointStop);
-          craneMiddleJointPos = 0;
-        }
-        craneClawPos = 0;
-        craneClaw.write(craneClawPos);
-        break;
-      // toggle crane manual and crane automatic modes
-      case 'y':
-        craneManual = craneManual ^ true;
-        if(craneManual) {
-          Serial1.print("You have the manual control of the crane.");
-        } else {
-          Serial1.print("Crane is controlled automatically.");
-        }
-        calculateCraneXAndY();
+
+        craneClawRotationPos = 30;
+        craneClawRotation.write(craneClawRotationPos);
         break;
       // wheel stuff, controls are: w - forwards (turn the motor in positive direction), s - backwards (move the motor in negative direction), a - left (in combination with w/s), d - right (in combination with w/s)
       case 'w':
+        Serial1.println("should be moving");
       	wheelIterationCounter = 0;
       	motorRunning = true;
-        if(gear) {
+        if(gearSlow) {
           if(moveDirection < 0) {
             motorRunning = false;
             analogWrite(wheelLeftMotorPinOne, 0);
@@ -479,7 +478,7 @@ void loop() {
       	break;
       case 's':
       	wheelIterationCounter = 0;
-        if(gear) {
+        if(gearSlow) {
           if(moveDirection > 0) {
             motorRunning = false;
             analogWrite(wheelLeftMotorPinOne, 0);
@@ -528,19 +527,26 @@ void loop() {
       	}
         wheelDirection.write(wheelDirectionPos);
       	break;
-      // switch motor gears
+      // switch motor gears (q)
       case 'z':
-        gear = gear ^ true;
-        if(gear) {
+        gearSlow = gearSlow ^ true;
+        if(gearSlow) {
           Serial1.println("The vehicle is in the slow gear operation mode.");
         } else {
           Serial1.println("The vehicle is in the fast gear operation mode.");
         }
         break;
+      case 'x':
+        readUltrasonic = readUltrasonic ^ true;
+        if(readUltrasonic) {
+          Serial1.println("The ROD is fetching data from the ultrasonic sensor.");
+        } else {
+          Serial1.println("The ROD is NOT fetching data from the ultrasonic sensor.");
+        }
     }
   } else if(motorRunning) {
     wheelIterationCounter++;
-//    Serial1.println(wheelIterationCounter);
+//    Serial1n.println(wheelIterationCounter);
     delay(1);
     if(wheelIterationCounter > iterationMax) {
       wheelIterationCounter = 0;
