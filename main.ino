@@ -1,3 +1,4 @@
+  // WiFi IP: 192.168.48.81
 #include <Servo.h>
 #include <math.h>
 #include <Stepper.h>
@@ -6,11 +7,6 @@
 #define lh 30 // length of the higher section of the crane. The variable name is "LH", but lower case. TODO: determine the actual length of the section
 
 #define timeSampleServo 100
-
-#define craneBasePinOne 3 // pin one for the stepper motor mounted on the base of the crane
-#define craneBasePinTwo 4 // pin two for the stepper motor mounted on the base of the crane
-#define craneBasePinThree 5 // pin three for the stepper motor mounted on the base of the crane
-#define craneBasePinFour 6 // pin four for the stepper motor mounted on the base of the crane
 
 typedef int bool;
 #define true 1
@@ -25,6 +21,8 @@ const int ultrasonicEchoPin = 9;
 const int ultrasonicTrigPin = 10;
 
 double craneBasePos = 0;
+const int craneBasePinOne = 6;
+const int craneBasePinTwo = 11;
 
 Servo craneLowerJoint;
 int craneLowerJointPos = 130; 
@@ -48,10 +46,8 @@ Servo wheelDirection;
 const int wheelDirectionPin = A3;
 int wheelDirectionPos = 90;
 
-int wheelLeftMotorPinOne = 2;
-int wheelLeftMotorPinTwo = 7;
-int wheelRightMotorPinOne = 8;
-int wheelRightMotorPinTwo = 11;
+int wheelMotorPinOne = 3;
+int wheelMotorPinTwo = 5;
 
 int wheelIterationCounter = 0;
 int wheelDirectionIterationCounter = 0;
@@ -83,90 +79,6 @@ void writeServoSmooth(Servo servo,int current, int deg, bool negative) {
   }
 }
 
-void stepper(int n, bool dir){
-  int steps = 0;
-  for (int i = 0; i < n; i++){
-    switch(steps){
-     case 0:
-       digitalWrite(craneBasePinOne, LOW); 
-       digitalWrite(craneBasePinTwo, LOW);
-       digitalWrite(craneBasePinThree, LOW);
-       digitalWrite(craneBasePinFour, HIGH);
-       break; 
-     case 1:
-       digitalWrite(craneBasePinOne, LOW); 
-       digitalWrite(craneBasePinTwo, LOW);
-       digitalWrite(craneBasePinThree, HIGH);
-       digitalWrite(craneBasePinFour, HIGH);
-       break; 
-     case 2:
-       digitalWrite(craneBasePinOne, LOW); 
-       digitalWrite(craneBasePinTwo, LOW);
-       digitalWrite(craneBasePinThree, HIGH);
-       digitalWrite(craneBasePinFour, LOW);
-       break; 
-     case 3:
-       digitalWrite(craneBasePinOne, LOW); 
-       digitalWrite(craneBasePinTwo, HIGH);
-       digitalWrite(craneBasePinThree, HIGH);
-       digitalWrite(craneBasePinFour, LOW);
-       break; 
-     case 4:
-       digitalWrite(craneBasePinOne, LOW); 
-       digitalWrite(craneBasePinTwo, HIGH);
-       digitalWrite(craneBasePinThree, LOW);
-       digitalWrite(craneBasePinFour, LOW);
-       break; 
-     case 5:
-       digitalWrite(craneBasePinOne, HIGH); 
-       digitalWrite(craneBasePinTwo, HIGH);
-       digitalWrite(craneBasePinThree, LOW);
-       digitalWrite(craneBasePinFour, LOW);
-       break; 
-     case 6:
-       digitalWrite(craneBasePinOne, HIGH); 
-       digitalWrite(craneBasePinTwo, LOW);
-       digitalWrite(craneBasePinThree, LOW);
-       digitalWrite(craneBasePinFour, LOW);
-       break; 
-     case 7:
-       digitalWrite(craneBasePinOne, HIGH); 
-       digitalWrite(craneBasePinTwo, LOW);
-       digitalWrite(craneBasePinThree, LOW);
-       digitalWrite(craneBasePinFour, HIGH);
-       break; 
-     default:
-       digitalWrite(craneBasePinOne, LOW); 
-       digitalWrite(craneBasePinTwo, LOW);
-       digitalWrite(craneBasePinThree, LOW);
-       digitalWrite(craneBasePinFour, LOW);
-       break; 
-    }
-    steps = setDirection(steps, dir);
-    delay(5);
-  }
-} 
-
-int setDirection(int steps, bool dir){
-  if(dir){ 
-    steps++;
-  }
-  
-  if(!dir){ 
-    steps--; 
-  }
-  
-  if(steps > 7){
-    steps=0;
-  }
-  
-  if(steps < 0){
-    steps=7; 
-  }
-
-  return steps;
-}
-
 void readUltrasonicFN() {
   // Clears the trigPin
   digitalWrite(ultrasonicTrigPin, LOW);
@@ -195,10 +107,10 @@ void setup() {
   pinMode(ultrasonicEchoPin, INPUT); // Sets the echoPin as an Input
 
   // DC motor wheel stuff
-  pinMode(wheelLeftMotorPinOne, OUTPUT);
-  pinMode(wheelLeftMotorPinTwo, OUTPUT);
-  pinMode(wheelRightMotorPinOne, OUTPUT);
-  pinMode(wheelRightMotorPinTwo, OUTPUT);
+  pinMode(wheelMotorPinOne, OUTPUT);
+  pinMode(wheelMotorPinTwo, OUTPUT);
+  pinMode(craneBasePinOne, OUTPUT);
+  pinMode(craneBasePinTwo, OUTPUT);
   Serial1.println("The vehicle is in the slow gear operation mode.");
   
   wheelDirection.attach(wheelDirectionPin);
@@ -211,7 +123,7 @@ void setup() {
   craneMiddleJoint.attach(craneMiddleJointPin);
   craneMiddleJoint.write(craneMiddleJointStop); // continuous
   craneClawClench.attach(craneClawClenchPin);
-  craneClawClench.write(70); // 180-degree
+  craneClawClench.write(20); // 180-degree
   craneClawRotation.attach(craneClawRotationPin);
   craneClawRotation.write(craneClawRotationPos); // 180-degree
 
@@ -241,10 +153,8 @@ void loop() {
       if(wheelIterationCounter > iterationMax) {
         wheelIterationCounter = 0;
       	motorRunning = false;
-      	analogWrite(wheelLeftMotorPinOne, 0);
-        analogWrite(wheelLeftMotorPinTwo, 0);
-        analogWrite(wheelRightMotorPinOne, 0);
-        analogWrite(wheelRightMotorPinTwo, 0);
+      	analogWrite(wheelMotorPinOne, 0);
+        analogWrite(wheelMotorPinTwo, 0);
         moveDirection = 0;
       }
     } else if(wheelsTurning && command != 'a' && command != 'd') {
@@ -305,7 +215,13 @@ void loop() {
       // rotate the base of the crane(r - clockwise, f - counterclockwise), manual control mode does not change anything.
       case 'r':
         Serial1.print("Crane base: ");
-        stepper(2048, true);
+        analogWrite(craneBasePinOne, 0);
+        analogWrite(craneBasePinTwo, 50);
+        delay(300);
+        analogWrite(craneBasePinOne, 0);
+        analogWrite(craneBasePinTwo, 0);
+        
+//        stepper(2048, true);
         craneBasePos += 22.5;
         if(craneBasePos > 360) {
           craneBasePos -= 360;
@@ -316,7 +232,13 @@ void loop() {
         break;
       case 'f':
         Serial1.print("Crane base: ");
-        stepper(2048, false);
+        analogWrite(craneBasePinOne, 50);
+        analogWrite(craneBasePinTwo, 0);
+        delay(300);
+        analogWrite(craneBasePinOne, 0);
+        analogWrite(craneBasePinTwo, 0);
+        
+//        stepper(2048, false);
         craneBasePos -= 22.5;
         if(craneBasePos > 360) {
           craneBasePos -= 360;
@@ -353,37 +275,37 @@ void loop() {
       // used to move the middle joint up (y) and down (h)
       case 'y':
         Serial1.print("Middle Joint: ");
-        if(craneMiddleJointPos < 140) {
+        if(craneMiddleJointPos < 170) {
           craneMiddleJoint.write(craneMiddleJointStop + craneMiddleJointSpeed);
           delay(timeSampleServo);
           craneMiddleJoint.write(craneMiddleJointStop);
           craneMiddleJointPos += craneMiddleJointSpeed;
           Serial1.println(craneMiddleJointPos);
         }
-        if(craneMiddleJointPos >= 140) {
-          craneMiddleJointPos = 140;
+        if(craneMiddleJointPos >= 170) {
+          craneMiddleJointPos = 170;
           Serial1.println("At its maximum!");
         }
         break;
       case 'h':
         Serial1.print("Middle Joint: ");
-        if(craneMiddleJointPos > -10) {
+        if(craneMiddleJointPos > -100) {
           craneMiddleJoint.write(craneMiddleJointStop - craneMiddleJointSpeed);
           delay(timeSampleServo);
           craneMiddleJoint.write(craneMiddleJointStop);
           craneMiddleJointPos -= craneMiddleJointSpeed;
           Serial1.println(craneMiddleJointPos);
-        } else if(craneMiddleJointPos <= -10) {
-          craneMiddleJointPos = -10;
+        } else if(craneMiddleJointPos <= -100) {
+          craneMiddleJointPos = -100;
           Serial1.println("At its minimum!");
         }
         break;
       case 'u':
         Serial1.print("Crane Claw Rotation, Clockwise: ");
-        if(craneClawRotationPos > 120) {
-          craneClawRotationPos = 120;
+        if(craneClawRotationPos > 140) {
+          craneClawRotationPos = 140;
           craneClawRotation.write(craneClawRotationPos);
-        } else if(craneClawRotationPos != 120) {
+        } else if(craneClawRotationPos != 140) {
           writeServoSmooth(craneClawRotation, craneClawRotationPos, 10, false);
           craneClawRotationPos += 10;
         }
@@ -404,10 +326,10 @@ void loop() {
       case 'n':
         craneClawClenchPos = craneClawClenchPos ^ true;
         if(craneClawClenchPos) {
-          writeServoSmooth(craneClawClench, 110, 40, false);
+          writeServoSmooth(craneClawClench, craneClawClench.read(), 90, false);
           Serial1.println("Clenching the claw.");
         } else {
-          writeServoSmooth(craneClawClench, 70, 40, true);
+          writeServoSmooth(craneClawClench, craneClawClench.read(), 90, true);
           Serial1.println("Unclenching the claw.");
         }
         break;
@@ -415,10 +337,10 @@ void loop() {
       case 'b':
         Serial1.println("Reset crane.");
         if(craneBasePos >= 180) {
-          stepper(256 * ((360 - craneBasePos) / 22.5), true);
+//          stepper(256 * ((360 - craneBasePos) / 22.5), true);
           craneBasePos = 0;
         } else if(craneBasePos != 0) {
-          stepper(256 * (craneBasePos / 22.5), false);
+//          stepper(256 * (craneBasePos / 22.5), false);
           craneBasePos = 0;
         }
         
@@ -448,30 +370,22 @@ void loop() {
         if(gearSlow) {
           if(moveDirection < 0) {
             motorRunning = false;
-            analogWrite(wheelLeftMotorPinOne, 0);
-            analogWrite(wheelLeftMotorPinTwo, 0);
-            analogWrite(wheelRightMotorPinOne, 0);
-            analogWrite(wheelRightMotorPinTwo, 0);
+            analogWrite(wheelMotorPinOne, 0);
+            analogWrite(wheelMotorPinTwo, 0);
           } else {
             motorRunning = true;
-            analogWrite(wheelLeftMotorPinOne, 50);
-            analogWrite(wheelLeftMotorPinTwo, 0);
-            analogWrite(wheelRightMotorPinOne, 50);
-            analogWrite(wheelRightMotorPinTwo, 0);
+            analogWrite(wheelMotorPinOne, 150);
+            analogWrite(wheelMotorPinTwo, 0);
           }
         } else {
           if(moveDirection < 0) {
             motorRunning = false;
-            analogWrite(wheelLeftMotorPinOne, 0);
-            analogWrite(wheelLeftMotorPinTwo, 0);
-            analogWrite(wheelRightMotorPinOne, 0);
-            analogWrite(wheelRightMotorPinTwo, 0);
+            analogWrite(wheelMotorPinOne, 0);
+            analogWrite(wheelMotorPinTwo, 0);
           } else {
             motorRunning = true;
-            analogWrite(wheelLeftMotorPinOne, 255);
-            analogWrite(wheelLeftMotorPinTwo, 0);
-            analogWrite(wheelRightMotorPinOne, 255);
-            analogWrite(wheelRightMotorPinTwo, 0);
+            analogWrite(wheelMotorPinOne, 255);
+            analogWrite(wheelMotorPinTwo, 0);
           }
         }        
         moveDirection = 1;
@@ -481,30 +395,22 @@ void loop() {
         if(gearSlow) {
           if(moveDirection > 0) {
             motorRunning = false;
-            analogWrite(wheelLeftMotorPinOne, 0);
-            analogWrite(wheelLeftMotorPinTwo, 0);
-            analogWrite(wheelRightMotorPinOne, 0);
-            analogWrite(wheelRightMotorPinTwo, 0);
+            analogWrite(wheelMotorPinOne, 0);
+            analogWrite(wheelMotorPinTwo, 0);
           } else {
             motorRunning = true;
-            analogWrite(wheelLeftMotorPinOne, 0);
-            analogWrite(wheelLeftMotorPinTwo, 50);
-            analogWrite(wheelRightMotorPinOne, 0);
-            analogWrite(wheelRightMotorPinTwo, 50);
+            analogWrite(wheelMotorPinOne, 0);
+            analogWrite(wheelMotorPinTwo, 150);
           }
         } else {
           if(moveDirection > 0) {
             motorRunning = false;
-            analogWrite(wheelLeftMotorPinOne, 0);
-            analogWrite(wheelLeftMotorPinTwo, 0);
-            analogWrite(wheelRightMotorPinOne, 0);
-            analogWrite(wheelRightMotorPinTwo, 0);
+            analogWrite(wheelMotorPinOne, 0);
+            analogWrite(wheelMotorPinTwo, 0);
           } else {
             motorRunning = true;
-            analogWrite(wheelLeftMotorPinOne, 0);
-            analogWrite(wheelLeftMotorPinTwo, 255);
-            analogWrite(wheelRightMotorPinOne, 0);
-            analogWrite(wheelRightMotorPinTwo, 255);
+            analogWrite(wheelMotorPinOne, 0);
+            analogWrite(wheelMotorPinTwo, 255);
           }
         }
         moveDirection = -1;
@@ -551,10 +457,8 @@ void loop() {
     if(wheelIterationCounter > iterationMax) {
       wheelIterationCounter = 0;
       motorRunning = false;
-	    analogWrite(wheelLeftMotorPinOne, 0);
-      analogWrite(wheelLeftMotorPinTwo, 0);
-      analogWrite(wheelRightMotorPinOne, 0);
-      analogWrite(wheelRightMotorPinTwo, 0);
+	    analogWrite(wheelMotorPinOne, 0);
+      analogWrite(wheelMotorPinTwo, 0);
       moveDirection = 0;
     }
   } else if(wheelsTurning) {
